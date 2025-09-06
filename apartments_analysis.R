@@ -1,0 +1,214 @@
+# ETAP 1: Wczytanie danych
+
+# Instalacja i załadowanie bibliotek
+install.packages("readr")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("ggplot2")
+install.packages("corrplot")
+install.packages("leaflet")
+install.packages("htmlwidgets")
+
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(corrplot)
+library(leaflet)
+library(htmlwidgets)
+
+# Wczytuję plik CSV z danymi o mieszkaniach z sierpnia 2023
+apartments <- read_csv("apartments_pl_2023_08.csv")
+
+# Podgląd pierwszych 6 wierszy
+head(apartments)
+
+# Sprawdzenie struktury danych (kolumny, typy)
+glimpse(apartments)
+
+colSums(is.na(apartments))
+
+# Usuwanie zbędnych kolumn:
+# - id: identyfikator, nie wnosi informacji analitycznej
+# - buildingMaterial: silnie powiązany z 'type', dodatkowo zawiera sporo braków
+# - condition: większość wartości to braki, a sama zmienna ma ograniczoną wartość informacyjną
+# - buildYear: często skorelowany z 'type' (np. kamienice starsze, apartamenty nowsze)
+
+apartments <- apartments %>%
+  select(-id, -buildingMaterial, -condition, -buildYear)
+
+# Zamiana kolumny poi[Distance] na wartości typu boolean:
+# - 1 oznacza, że dany punkt POI znajduje się w obrębie 500m,
+# - 0 oznacza, że dany punkt POI nie znajduje się w obrębie 500m.
+
+apartments <- apartments %>%
+  mutate(
+    hasSchool = ifelse(is.na(schoolDistance), 0, 1),
+    hasClinic = ifelse(is.na(clinicDistance), 0, 1),
+    hasPostOffice = ifelse(is.na(postOfficeDistance), 0, 1),
+    hasKindergarten = ifelse(is.na(kindergartenDistance), 0, 1),
+    hasRestaurant = ifelse(is.na(restaurantDistance), 0, 1),
+    hasCollege = ifelse(is.na(collegeDistance), 0, 1),
+    hasPharmacy = ifelse(is.na(pharmacyDistance), 0, 1)
+  )
+
+apartments <- apartments %>%
+  select(-c(schoolDistance, clinicDistance, postOfficeDistance, 
+            kindergartenDistance, restaurantDistance, 
+            collegeDistance, pharmacyDistance))
+
+# Zamiana kolejności kolumn
+apartments <- apartments %>%
+  select(
+    city, type, squareMeters, rooms, floor, floorCount, 
+    latitude, longitude, centreDistance, poiCount, 
+    hasSchool, hasClinic, hasPostOffice, hasKindergarten, 
+    hasRestaurant, hasCollege, hasPharmacy, ownership, 
+    hasParkingSpace, hasBalcony, hasElevator, hasSecurity, 
+    hasStorageRoom, price
+  )
+
+# Usuwanie wierszy z brakującymi wartościami
+
+apartments <- apartments %>%
+  drop_na()
+
+apartments <- apartments %>%
+  mutate(
+    hasSchool = as.logical(hasSchool),
+    hasClinic = as.logical(hasClinic),
+    hasPostOffice = as.logical(hasPostOffice),
+    hasKindergarten = as.logical(hasKindergarten),
+    hasRestaurant = as.logical(hasRestaurant),
+    hasCollege = as.logical(hasCollege),
+    hasPharmacy = as.logical(hasPharmacy)
+  )
+
+# Dodanie kolumny 'price_per_m2' (cena za m²)
+apartments <- apartments %>%
+  mutate(price_per_m2 = price / squareMeters)
+
+# Statystyki podstawowe
+summary_stats <- apartments %>%
+  select(price_per_m2, squareMeters, rooms, floor) %>%
+  summary()
+
+summary_stats
+
+# Tabela porównawcza średniej ceny za m² w miastach
+city_comparison <- apartments %>%
+  group_by(city) %>%
+  summarise(avg_price_per_m2 = mean(price_per_m2, na.rm = TRUE)) %>%
+  arrange(desc(avg_price_per_m2))
+
+city_comparison
+
+# Histogram dla ceny
+ggplot(apartments, aes(x = price_per_m2)) +
+  geom_histogram(binwidth = 500, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Rozkład cen ofert sprzedaży mieszkań w Polsce\nna podstawie ceny za metr kwadratowy", 
+       x = "Cena za m²", y = "Liczba ofert") +
+  theme_minimal(base_size = 15) + 
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)  # Wyśrodkowanie tytułu
+  )
+
+# Histogram dla metrażu
+ggplot(apartments, aes(x = squareMeters)) +
+  geom_histogram(binwidth = 10, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Rozkład powierzchni ofert sprzedaży mieszkań w Polsce", 
+       x = "Powierzchnia mieszkania (m²)", 
+       y = "Liczba ofert") +
+  theme_minimal(base_size = 15) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Histogram dla liczby pokoi
+ggplot(apartments, aes(x = rooms)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Rozkład liczby pokoi w ofertach sprzedaży mieszkań", 
+       x = "Liczba pokoi", 
+       y = "Liczba ofert") +
+  theme_minimal(base_size = 15) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Histogram dla piętra
+ggplot(apartments, aes(x = floor)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Rozkład pięter, na których znajdują się mieszkania", 
+       x = "Piętro", 
+       y = "Liczba ofert") +
+  theme_minimal(base_size = 15) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Boxplot dla ceny w zależności od typu budynku
+ggplot(apartments, aes(x = type, y = price_per_m2)) +
+  geom_boxplot(fill = "skyblue", color = "black") +
+  labs(title = "Cena za m² w zależności od typu budynku") +  # Poprawiony tytuł
+  theme(
+    axis.title.x = element_blank(),  # Usunięcie tytułu osi X
+    axis.title.y = element_blank(),  # Usunięcie tytułu osi Y
+    plot.title = element_text(hjust = 0.5)  # Wypośrodkowanie tytułu
+  )
+
+# Scatter plot dla ceny vs odległość od centrum
+ggplot(apartments, aes(x = centreDistance, y = price_per_m2)) +
+  geom_point(color = "black") +  # Punkty
+  labs(
+    title = "Cena za m² vs Odległość od centrum",  # Poprawiony tytuł
+    x = "Odległość od centrum (km)", 
+    y = "Cena za m²"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5)  # Wypośrodkowanie tytułu
+  )
+
+# Współczynnik korelacji dla ceny vs odległość od centrum
+cor(apartments$centreDistance, apartments$price_per_m2, method = "pearson")
+
+# Scatter plot dla ceny vs liczba POI
+ggplot(apartments, aes(x = poiCount, y = price_per_m2)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Cena za m² vs Liczba POI w pobliżu", x = "Liczba POI", y = "Cena za m²")
+
+# Współczynnik korelacji dla ceny vs liczba POI
+cor(apartments$poiCount, apartments$price_per_m2, method = "pearson")  
+
+# Macierz korelacji z uwzględnieniem zmiennych 'has[poi]' oraz 'price_per_m2'
+cor_matrix_poi <- apartments %>%
+  select(price_per_m2, hasSchool, hasClinic, hasPostOffice, hasKindergarten, 
+         hasRestaurant, hasCollege, hasPharmacy) %>%
+  cor(use = "complete.obs")
+
+# Heatmap
+corrplot(cor_matrix_poi, method = "color", type = "upper", order = "hclust", 
+         col = colorRampPalette(c("blue", "white", "red"))(200))
+
+# Filtracja danych dla Poznania
+poznan_apartments <- apartments %>%
+  filter(city == "poznan")
+
+# Mapa punktowa dla Poznania
+map <- leaflet(poznan_apartments) %>%
+  addProviderTiles("CartoDB.Positron") %>%  
+  addCircleMarkers(
+    lng = ~longitude,  
+    lat = ~latitude,   
+    color = ~colorBin("YlOrRd", price_per_m2, bins = 6)(price_per_m2),  
+    radius = 5,        
+    fillOpacity = 0.7, 
+    popup = ~paste("Cena za m²: ", round(price_per_m2, 2))  
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = colorBin("YlOrRd", poznan_apartments$price_per_m2, bins = 6),
+    values = poznan_apartments$price_per_m2,
+    title = "Cena za m²"
+  )
+
+# Wyświetlanie mapy
+map
+
+# Zapisanie mapy do pliku html
+saveWidget(map, "mapa_poznan.html")
